@@ -1,6 +1,7 @@
 package com.example.service;
 
 import com.example.connection.DatabaseConnection;
+import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
 import com.example.model.ModelRegister;
 import com.example.model.ModelUserAccount;
@@ -50,7 +51,7 @@ public class ServiceUser {
                 int userID = resultSet.getInt(1);
                 resultSet.close();
                 preparedStatement.close();
-                
+
                 // Create user account (insert into user_account)
                 preparedStatement = connection.prepareStatement(INSERT_USER_ACCOUNT);
                 preparedStatement.setInt(1, userID);
@@ -84,7 +85,27 @@ public class ServiceUser {
 
         return message;
     }
-    
+
+    public ModelUserAccount login(ModelLogin login) throws SQLException {
+        ModelUserAccount data = null;
+        PreparedStatement preparedStatement = connection.prepareStatement(LOGIN);
+        preparedStatement.setString(1, login.getUserName());
+        preparedStatement.setString(2, login.getPassword());
+        ResultSet resultSet = preparedStatement.executeQuery();
+        // Use next() instead of first() because the default result set is forward-only.
+        // Calling first() may throw an exception or be unsupported; next() works reliably.
+        if (resultSet.next()) {
+            int userID = resultSet.getInt(1);
+            String userName = resultSet.getString(2);
+            String gender = resultSet.getString(3);
+            String image = resultSet.getString(4);
+            data = new ModelUserAccount(userID, userName, gender, image, true);
+        }
+        resultSet.close();
+        preparedStatement.close();
+        return data;
+    }
+
     public List<ModelUserAccount> getUser(int existUser) throws SQLException {
         List<ModelUserAccount> list = new ArrayList<>();
         PreparedStatement preparedStatement = connection.prepareStatement(SELECT_USER_ACCOUNT);
@@ -104,6 +125,7 @@ public class ServiceUser {
 
     // SQL
     // Escape the table name to avoid conflicts with reserved words and be explicit
+    private final String LOGIN = "SELECT UserID, user_account.UserName, Gender, ImageString FROM `user` JOIN `user_account` USING (UserID) WHERE `user`.`UserName`=BINARY(?) AND `user`.`Password`=BINARY(?) AND `user_account`.`Status`='1'";
     private final String SELECT_USER_ACCOUNT = "SELECT UserID, UserName, Gender, ImageString FROM user_account WHERE user_account.`Status`='1' AND UserID<>?";
     private final String INSERT_USER = "INSERT INTO `user` (UserName, `Password`) VALUES (?,?)";
     private final String INSERT_USER_ACCOUNT = "INSERT INTO `user_account` (UserID, UserName) VALUES(?,?)";

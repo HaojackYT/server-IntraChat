@@ -7,6 +7,7 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
+import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
 import com.example.model.ModelRegister;
 import com.example.model.ModelUserAccount;
@@ -55,6 +56,7 @@ public class Service {
             SwingUtilities.invokeLater(() -> textArea.append("One client disconnected\n"));
             System.out.println("[Service] onDisconnect: client disconnected: " + client.getSessionId());
         });
+        
         server.addEventListener("register", ModelRegister.class, new DataListener<ModelRegister>() {
             @Override
             public void onData(SocketIOClient sioc, ModelRegister t, AckRequest ar) throws Exception {
@@ -66,6 +68,19 @@ public class Service {
                 }
             }
         });
+        
+        server.addEventListener("login", ModelLogin.class, new DataListener<ModelLogin>() {
+            @Override
+            public void onData(SocketIOClient client, ModelLogin data, AckRequest ackSender) throws Exception {
+                ModelUserAccount login = serviceUser.login(data);
+                if (login != null) {
+                    ackSender.sendAckData(true, login);
+                } else {
+                    ackSender.sendAckData(false);
+                }
+            }
+        });
+        
         server.addEventListener("list_user", Integer.class, new DataListener<Integer>() {
             @Override
             public void onData(SocketIOClient client, Integer userID, AckRequest ackSender) throws Exception {
