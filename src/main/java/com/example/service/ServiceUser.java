@@ -1,6 +1,7 @@
 package com.example.service;
 
 import com.example.connection.DatabaseConnection;
+import com.example.model.ModelClient;
 import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
 import com.example.model.ModelRegister;
@@ -21,7 +22,6 @@ public class ServiceUser {
     public ModelMessage register(ModelRegister data) {
         // Check if user exist
         ModelMessage message = new ModelMessage();
-
         try {
             PreparedStatement preparedStatement = connection.prepareStatement(CHECK_USER);
             preparedStatement.setString(1, data.getUserName());
@@ -99,7 +99,7 @@ public class ServiceUser {
             String userName = resultSet.getString(2);
             String gender = resultSet.getString(3);
             String image = resultSet.getString(4);
-            data = new ModelUserAccount(userID, userName, gender, image, true);
+            data = new ModelUserAccount(userID, userName, gender, image, checkUserStatus(userID));
         }
         resultSet.close();
         preparedStatement.close();
@@ -116,11 +116,22 @@ public class ServiceUser {
             String userName = resultSet.getString(2);
             String gender = resultSet.getString(3);
             String image = resultSet.getString(4);
-            list.add(new ModelUserAccount(userID, userName, gender, image, true));
+            // Determine status based on whether the user has an active client connection
+            list.add(new ModelUserAccount(userID, userName, gender, image, checkUserStatus(userID)));
         }
         resultSet.close();
         preparedStatement.close();
         return list;
+    }
+
+    private boolean checkUserStatus(int userID) {
+        List<ModelClient> clients = Service.getInstance(null).getListClient();
+        for (ModelClient client : clients) {
+            if (client.getUser().getUserID() == userID) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // SQL
