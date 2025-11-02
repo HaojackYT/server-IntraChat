@@ -10,7 +10,9 @@ import com.corundumstudio.socketio.listener.DisconnectListener;
 import com.example.model.ModelClient;
 import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
+import com.example.model.ModelReceiveMessage;
 import com.example.model.ModelRegister;
+import com.example.model.ModelSendMessage;
 import com.example.model.ModelUserAccount;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -100,6 +102,13 @@ public class Service {
             }
         });
         
+        server.addEventListener("send_to_user", ModelSendMessage.class, new DataListener<ModelSendMessage>() {
+            @Override
+            public void onData(SocketIOClient client, ModelSendMessage data, AckRequest ackSender) throws Exception {
+                sendToClient(data);
+            }
+        });
+        
         server.addDisconnectListener(new DisconnectListener() {
             @Override
             public void onDisconnect(SocketIOClient client) {
@@ -109,6 +118,7 @@ public class Service {
                 }
             }
         });
+        
         server.start();
         textArea.append("Server has started on port: " + PORT_NUMBER + "\n");
     }
@@ -125,6 +135,15 @@ public class Service {
         listClient.add(new ModelClient(client, user));
     }
 
+    private void sendToClient(ModelSendMessage data) {
+        for (ModelClient client : listClient) {
+            if (client.getUser().getUserID() == data.getToUserID()) {
+                client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getFromUserID(), data.getText()));
+                break;
+            }
+        }
+    }
+    
     public int removeClient(SocketIOClient client) {
         for (ModelClient c : listClient) {
             if (c.getClient() == client) {
