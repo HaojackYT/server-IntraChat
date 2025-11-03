@@ -4,14 +4,20 @@ public class ModelReceiveMessage {
     
     int fromUserID;
     String text;
+    int toUserID;
 
-    public ModelReceiveMessage(int fromUserID, String text) {
+    public ModelReceiveMessage(int fromUserID, int toUserID, String text) {
         this.fromUserID = fromUserID;
         this.text = text;
+        this.toUserID = toUserID;
     }
 
     public ModelReceiveMessage() {
         
+    }
+
+    public int getToUserID(){
+        return toUserID;
     }
 
     public int getFromUserID() {

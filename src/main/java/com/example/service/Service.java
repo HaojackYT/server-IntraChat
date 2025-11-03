@@ -7,6 +7,7 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
+import com.example.model.ChatMessage; 
 import com.example.model.ModelClient;
 import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
@@ -14,6 +15,7 @@ import com.example.model.ModelReceiveMessage;
 import com.example.model.ModelRegister;
 import com.example.model.ModelSendMessage;
 import com.example.model.ModelUserAccount;
+import com.example.repository.MessageRepository;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +24,7 @@ import javax.swing.SwingUtilities;
 
 public class Service {
 
+    private MessageRepository messageRepository;
     private static Service instance;
     private SocketIOServer server;
     private ServiceUser serviceUser;
@@ -38,6 +41,7 @@ public class Service {
 
     private Service(JTextArea textArea) {
         this.textArea = textArea;
+        this.messageRepository = new MessageRepository(); 
         serviceUser = new ServiceUser();
         listClient = new ArrayList<>();
     }
@@ -46,23 +50,28 @@ public class Service {
         Configuration config = new Configuration();
         config.setPort(PORT_NUMBER);
         server = new SocketIOServer(config);
-        // Register connect listener correctly so onConnect is invoked
+        
+        // Listener 1: Connect
         server.addConnectListener(new ConnectListener() {
             @Override
             public void onConnect(SocketIOClient sioc) {
-                // Always update Swing components on the EDT
                 SwingUtilities.invokeLater(() -> textArea.append("One client connected\n"));
-                // Also print to console for easier debugging when GUI isn't visible
                 System.out.println("[Service] onConnect: client connected: " + sioc.getSessionId());
             }
         });
 
-        // Add a disconnect listener as well to help debugging disconnects
+        // Listener 2: Disconnect 
         server.addDisconnectListener((DisconnectListener) client -> {
             SwingUtilities.invokeLater(() -> textArea.append("One client disconnected\n"));
             System.out.println("[Service] onDisconnect: client disconnected: " + client.getSessionId());
+            // Xử lý mất kết nối
+            int userID = removeClient(client);
+            if (userID != 0) {
+                userDisconnect(userID);
+            }
         });
         
+        // Listener 3: "register"
         server.addEventListener("register", ModelRegister.class, new DataListener<ModelRegister>() {
             @Override
             public void onData(SocketIOClient sioc, ModelRegister t, AckRequest ar) throws Exception {
@@ -76,6 +85,7 @@ public class Service {
             }
         });
         
+        // Listener 4: "login"
         server.addEventListener("login", ModelLogin.class, new DataListener<ModelLogin>() {
             @Override
             public void onData(SocketIOClient client, ModelLogin data, AckRequest ackSender) throws Exception {
@@ -90,6 +100,7 @@ public class Service {
             }
         });
         
+        // Listener 5: "list_user"
         server.addEventListener("list_user", Integer.class, new DataListener<Integer>() {
             @Override
             public void onData(SocketIOClient client, Integer userID, AckRequest ackSender) throws Exception {
@@ -102,6 +113,7 @@ public class Service {
             }
         });
         
+        // Listener 6: "send_to_user" 
         server.addEventListener("send_to_user", ModelSendMessage.class, new DataListener<ModelSendMessage>() {
             @Override
             public void onData(SocketIOClient client, ModelSendMessage data, AckRequest ackSender) throws Exception {
@@ -109,12 +121,23 @@ public class Service {
             }
         });
         
-        server.addDisconnectListener(new DisconnectListener() {
+        // Listener 7: MỚI - "get_history" 
+        server.addEventListener("get_history", Integer.class, new DataListener<Integer>() {
             @Override
-            public void onDisconnect(SocketIOClient client) {
-                int userID = removeClient(client);
-                if (userID != 0) {
-                    userDisconnect(userID);
+            public void onData(SocketIOClient client, Integer toUserID, AckRequest ackSender) throws Exception {
+                int fromUserID = getFromUserID(client); 
+                
+                if (fromUserID != 0) {
+                    try {
+                        List<ChatMessage> history = messageRepository.getHistory(fromUserID, toUserID);
+                        // Gửi List<ChatMessage> (sẽ được chuyển thành JSONArray) về Client
+                        ackSender.sendAckData(history); 
+                    } catch (SQLException e) {
+                        System.err.println("Error loading chat history: " + e.getMessage());
+                        ackSender.sendAckData(new ArrayList<>()); 
+                    }
+                } else {
+                    ackSender.sendAckData(new ArrayList<>()); 
                 }
             }
         });
@@ -135,13 +158,35 @@ public class Service {
         listClient.add(new ModelClient(client, user));
     }
 
+    // HÀM ĐÃ SỬA: Thêm logic lưu tin nhắn vào DB TRƯỚC khi gửi
     private void sendToClient(ModelSendMessage data) {
+        // 1. Lưu tin nhắn vào DB
+        ChatMessage chatMessage = new ChatMessage(data.getFromUserID(), data.getToUserID(), data.getText());
+        try {
+            messageRepository.saveMessage(chatMessage);
+        } catch (SQLException e) {
+            System.err.println("Error saving message: " + e.getMessage());
+        }
+        
+        // 2. Gửi tin nhắn qua Socket như cũ
+        ModelReceiveMessage receiveData = new ModelReceiveMessage(data.getFromUserID(), data.getToUserID(), data.getText());
+
         for (ModelClient client : listClient) {
             if (client.getUser().getUserID() == data.getToUserID()) {
-                client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getFromUserID(), data.getText()));
+                // ✅ Gửi đối tượng hoàn chỉnh
+                client.getClient().sendEvent("receive_ms", receiveData); 
                 break;
             }
         }
+    }
+    
+    private int getFromUserID(SocketIOClient client) {
+        for (ModelClient c : listClient) {
+            if (c.getClient() == client) {
+                return c.getUser().getUserID();
+            }
+        }
+        return 0;
     }
     
     public int removeClient(SocketIOClient client) {
