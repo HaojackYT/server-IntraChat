@@ -12,6 +12,10 @@ public class MessageRepository {
         "SELECT id, sender_id, receiver_id, content, sent_time FROM messages " +
         "WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) " +
         "ORDER BY sent_time ASC";
+    private static final String SELECT_PENDING = 
+        "SELECT id, sender_id, receiver_id, content, sent_time FROM messages " +
+        "WHERE receiver_id = ? AND is_sent = 0 ORDER BY sent_time ASC";
+    private static final String MARK_AS_SENT = "UPDATE messages SET is_sent = 1 WHERE id = ?";
 
     public void saveMessage(ChatMessage message) throws SQLException {
         Connection con = DatabaseConnection.getInstance().getConnection(); 
@@ -43,5 +47,31 @@ public class MessageRepository {
             }
         }
         return history;
+    }
+
+    // Lấy tin nhắn chưa gửi/chờ
+    public List<ChatMessage> getPendingMessages(int receiverId) throws SQLException {
+        List<ChatMessage> pending = new ArrayList<>();
+        Connection con = DatabaseConnection.getInstance().getConnection();
+        try (PreparedStatement ps = con.prepareStatement(SELECT_PENDING)) {
+            ps.setInt(1, receiverId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    pending.add(new ChatMessage(
+                        rs.getLong("id"), rs.getInt("sender_id"), rs.getInt("receiver_id"), 
+                        rs.getString("content"), rs.getTimestamp("sent_time")));
+                }
+            }
+        }
+        return pending;
+    }
+
+    // Đánh dấu tin nhắn đã gửi
+    public void markAsSent(long messageId) throws SQLException {
+        Connection con = DatabaseConnection.getInstance().getConnection(); 
+        try (PreparedStatement ps = con.prepareStatement(MARK_AS_SENT)) {
+            ps.setLong(1, messageId);
+            ps.executeUpdate();
+        }
     }
 }

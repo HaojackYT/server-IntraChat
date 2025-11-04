@@ -94,6 +94,7 @@ public class Service {
                     ackSender.sendAckData(true, login);
                     addClient(client, login);
                     userConnect(login.getUserID());
+                    sendPendingMessages(login.getUserID());
                 } else {
                     ackSender.sendAckData(false);
                 }
@@ -158,7 +159,7 @@ public class Service {
         listClient.add(new ModelClient(client, user));
     }
 
-    // HÀM ĐÃ SỬA: Thêm logic lưu tin nhắn vào DB TRƯỚC khi gửi
+    // Thêm logic lưu tin nhắn vào DB TRƯỚC khi gửi
     private void sendToClient(ModelSendMessage data) {
         // 1. Lưu tin nhắn vào DB
         ChatMessage chatMessage = new ChatMessage(data.getFromUserID(), data.getToUserID(), data.getText());
@@ -173,12 +174,35 @@ public class Service {
 
         for (ModelClient client : listClient) {
             if (client.getUser().getUserID() == data.getToUserID()) {
-                // ✅ Gửi đối tượng hoàn chỉnh
+                // Gửi đối tượng hoàn chỉnh
                 client.getClient().sendEvent("receive_ms", receiveData); 
                 break;
             }
         }
     }
+
+    private void sendPendingMessages(int userID) {
+    SocketIOClient clientSocket = findClientSocket(userID);
+    if (clientSocket != null) {
+        try {
+            // Lấy tin nhắn chờ từ DB
+            List<ChatMessage> pendingMessages = messageRepository.getPendingMessages(userID);
+            
+            for (ChatMessage msg : pendingMessages) {
+                // Chuyển ChatMessage sang ModelReceiveMessage để gửi qua Socket
+                ModelReceiveMessage receiveData = new ModelReceiveMessage(msg.getSenderId(), msg.getReceiverId(), msg.getContent());
+                
+                // Gửi tin nhắn
+                clientSocket.sendEvent("receive_ms", receiveData);
+                
+                // Đánh dấu tin nhắn là đã gửi thành công
+                messageRepository.markAsSent(msg.getId());
+            }
+        } catch (SQLException e) {
+            System.err.println("Error sending pending messages: " + e.getMessage());
+        }
+    }
+}
     
     private int getFromUserID(SocketIOClient client) {
         for (ModelClient c : listClient) {
@@ -187,6 +211,15 @@ public class Service {
             }
         }
         return 0;
+    }
+
+    private SocketIOClient findClientSocket(int userID) {
+        for (ModelClient client : listClient) {
+            if (client.getUser().getUserID() == userID) {
+                return client.getClient();
+            }
+        }
+        return null;
     }
     
     public int removeClient(SocketIOClient client) {
@@ -203,3 +236,4 @@ public class Service {
         return listClient;
     }
 }
+    

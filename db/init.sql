@@ -30,6 +30,7 @@ CREATE TABLE messages (
     receiver_id INT NOT NULL,
     content TEXT NOT NULL,
     sent_time DATETIME NOT NULL,
+    is_sent BOOLEAN NOT NULL DEFAULT 0,
     
     CONSTRAINT fk_message_sender 
         FOREIGN KEY (sender_id) 
@@ -41,5 +42,6 @@ CREATE TABLE messages (
         REFERENCES user_account(UserID)
         ON DELETE CASCADE,
         
-    INDEX idx_chat_pair (sender_id, receiver_id, sent_time)
+    INDEX idx_chat_pair (sender_id, receiver_id, sent_time),
+    INDEX idx_pending (receiver_id, is_sent)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

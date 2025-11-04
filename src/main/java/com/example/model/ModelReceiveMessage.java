@@ -20,6 +20,9 @@ public class ModelReceiveMessage {
         return toUserID;
     }
 
+    public void setToUserID(){
+        this.toUserID = toUserID;
+    }
     public int getFromUserID() {
         return fromUserID;
     }
