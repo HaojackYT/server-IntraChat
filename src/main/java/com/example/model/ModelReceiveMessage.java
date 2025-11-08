@@ -2,16 +2,24 @@ package com.example.model;
 
 public class ModelReceiveMessage {
     
-    int fromUserID;
-    String text;
+    private int messageType;
+    private int fromUserID;
+    private String text;
 
-    public ModelReceiveMessage(int fromUserID, String text) {
+    public ModelReceiveMessage(int messageType, int fromUserID, String text) {
+        this.messageType = messageType;
         this.fromUserID = fromUserID;
         this.text = text;
     }
 
-    public ModelReceiveMessage() {
-        
+    public ModelReceiveMessage() { }
+
+    public int getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(int messageType) {
+        this.messageType = messageType;
     }
 
     public int getFromUserID() {
