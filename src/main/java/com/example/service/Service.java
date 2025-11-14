@@ -16,6 +16,7 @@ import com.example.model.ModelPackageSender;
 import com.example.model.ModelReceiveImage;
 import com.example.model.ModelReceiveMessage;
 import com.example.model.ModelRegister;
+import com.example.model.ModelRequestFile;
 import com.example.model.ModelSendMessage;
 import com.example.model.ModelUserAccount;
 import java.io.IOException;
@@ -138,6 +139,54 @@ public class Service {
             }
         });
         
+        server.addEventListener("get_file", Integer.class, new DataListener<Integer>() {
+            @Override
+            public void onData(SocketIOClient client, Integer data, AckRequest ackSender) throws Exception {
+                try {
+                    System.out.println("[Service] Client requesting file info for FileID: " + data);
+                    ModelFile file = serviceFile.initFile(data);
+                    long fileSize = serviceFile.getFileSize(data);
+                    System.out.println("[Service] Sending file info - Extension: " + file.getFileExtension() + ", Size: " + fileSize);
+                    ackSender.sendAckData(file.getFileExtension(), fileSize);
+                } catch (Exception e) {
+                    System.err.println("[Service] ERROR in get_file for FileID " + data + ": " + e.getMessage());
+                    e.printStackTrace();
+                    ackSender.sendAckData();
+                }
+            }
+        });
+        
+        server.addEventListener("request_file", ModelRequestFile.class, new DataListener<ModelRequestFile>() {
+            @Override
+            public void onData(SocketIOClient client, ModelRequestFile data, AckRequest ackSender) throws Exception {
+                try {
+                    System.out.println("[Service] Client requesting file chunk - FileID: " + data.getFileID() + ", CurrentLength: " + data.getCurrentLength());
+                    byte[] d = serviceFile.getFileData(data.getCurrentLength(), data.getFileID());
+                    if (d != null) {
+                        System.out.println("[Service] Sending file chunk - FileID: " + data.getFileID() + ", From: " + data.getCurrentLength() + ", Size: " + d.length + " bytes");
+                        
+                        // Debug: print first few bytes
+                        if (d.length > 0) {
+                            StringBuilder sb = new StringBuilder("[Service] First bytes being sent: ");
+                            for (int i = 0; i < Math.min(10, d.length); i++) {
+                                sb.append(String.format("%02X ", d[i] & 0xFF));
+                            }
+                            System.out.println(sb.toString());
+                        }
+                        
+                        ackSender.sendAckData(d);
+                    } else {
+                        System.out.println("[Service] No more data for FileID: " + data.getFileID());
+                        ackSender.sendAckData();
+                    }
+                } catch (Exception e) {
+                    System.err.println("[Service] ERROR sending file chunk for FileID " + data.getFileID() + ": " + e.getMessage());
+                    e.printStackTrace();
+                    ackSender.sendAckData();
+                }
+            }
+        });
+        
         server.addDisconnectListener(new DisconnectListener() {
             @Override
             public void onDisconnect(SocketIOClient client) {
@@ -184,9 +233,11 @@ public class Service {
     }
     
     private void sendTempFileToClient(ModelSendMessage data, ModelReceiveImage dataImage) {
+        System.out.println("[Service] Sending file to client - ToUser: " + data.getToUserID() + ", FileID: " + dataImage.getFileID() + ", Width: " + dataImage.getWidth() + ", Height: " + dataImage.getHeight());
         for (ModelClient client : listClient) {
             if (client.getUser().getUserID() == data.getToUserID()) {
                 client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), dataImage));
+                System.out.println("[Service] File message sent successfully to User " + data.getToUserID());
                 break;
             }
         }

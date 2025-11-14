@@ -13,6 +13,11 @@ public class ModelFileReceiver {
     public ModelFileReceiver(ModelSendMessage message, File file) throws IOException {
         this.message = message;
         this.file = file;
+        // Create parent directory if not exists
+        File parentDir = file.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
         this.accessFile = new RandomAccessFile(file, "rw");
     }
 

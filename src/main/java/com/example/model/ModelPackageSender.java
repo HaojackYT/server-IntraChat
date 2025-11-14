@@ -3,10 +3,10 @@ package com.example.model;
 public class ModelPackageSender {
     
     int fileID;
-    String data;
+    byte[] data;
     boolean finish;
 
-    public ModelPackageSender(int fileID, String data, boolean finish) {
+    public ModelPackageSender(int fileID, byte[] data, boolean finish) {
         this.fileID = fileID;
         this.data = data;
         this.finish = finish;
@@ -22,11 +22,11 @@ public class ModelPackageSender {
         this.fileID = fileID;
     }
 
-    public String getData() {
+    public byte[] getData() {
         return data;
     }
 
-    public void setData(String data) {
+    public void setData(byte[] data) {
         this.data = data;
     }
 
