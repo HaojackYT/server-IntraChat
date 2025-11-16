@@ -2,13 +2,20 @@ package com.example.model;
 
 public class ModelSendMessage {
     
-    private int messageType;
-    private int fromUserID;
-    private int toUserID;
-    private String text;    
+    private int messageType; 
+    int fromUserID;
+    int toUserID;
+    String text;    
 
     public ModelSendMessage(int messageType, int fromUserID, int toUserID, String text) {
         this.messageType = messageType;
+        this.fromUserID = fromUserID;
+        this.toUserID = toUserID;
+        this.text = text;
+    }
+    
+    public ModelSendMessage(int fromUserID, int toUserID, String text) {
+        this.messageType = 0; 
         this.fromUserID = fromUserID;
         this.toUserID = toUserID;
         this.text = text;
