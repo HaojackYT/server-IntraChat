@@ -2,26 +2,16 @@ package com.example.model;
 
 public class ModelReceiveMessage {
     
-    private int messageType; 
-    int fromUserID;
+    private int messageType;
+    private int fromUserID;
     private String text;
-    int toUserID;
-    ModelReceiveImage dataImage; 
+    ModelReceiveImage dataImage;
 
-    public ModelReceiveMessage(int messageType, int fromUserID, int toUserID, String text, ModelReceiveImage dataImage) {
+    public ModelReceiveMessage(int messageType, int fromUserID, String text, ModelReceiveImage dataImage) {
         this.messageType = messageType;
         this.fromUserID = fromUserID;
         this.text = text;
-        this.toUserID = toUserID;
         this.dataImage = dataImage;
-    }
-    
-    public ModelReceiveMessage(int fromUserID, int toUserID, String text) {
-        this.messageType = 0; 
-        this.fromUserID = fromUserID;
-        this.text = text;
-        this.toUserID = toUserID;
-        this.dataImage = null;
     }
 
     public ModelReceiveMessage() {
@@ -33,14 +23,6 @@ public class ModelReceiveMessage {
 
     public void setMessageType(int messageType) {
         this.messageType = messageType;
-    }
-    
-    public int getToUserID(){
-        return toUserID;
-    }
-
-    public void setToUserID(int toUserID){
-        this.toUserID = toUserID;
     }
 
     public int getFromUserID() {

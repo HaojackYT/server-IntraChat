@@ -8,20 +8,18 @@ import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
 import com.example.app.MessageType;
-import com.example.model.ChatMessage; 
 import com.example.model.ModelClient;
-import com.example.model.ModelFile; 
+import com.example.model.ModelFile;
 import com.example.model.ModelLogin;
 import com.example.model.ModelMessage;
-import com.example.model.ModelPackageSender; 
-import com.example.model.ModelReceiveImage; 
+import com.example.model.ModelPackageSender;
+import com.example.model.ModelReceiveImage;
 import com.example.model.ModelReceiveMessage;
 import com.example.model.ModelRegister;
-import com.example.model.ModelRequestFile; 
+import com.example.model.ModelRequestFile;
 import com.example.model.ModelSendMessage;
 import com.example.model.ModelUserAccount;
-import com.example.repository.MessageRepository;
-import java.io.IOException; 
+import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +28,6 @@ import javax.swing.SwingUtilities;
 
 public class Service {
 
-    private MessageRepository messageRepository;
     private static Service instance;
     private SocketIOServer server;
     private ServiceUser serviceUser;
@@ -48,9 +45,8 @@ public class Service {
 
     private Service(JTextArea textArea) {
         this.textArea = textArea;
-        this.messageRepository = new MessageRepository(); 
         serviceUser = new ServiceUser();
-        this.serviceFile = new ServiceFile();
+        serviceFile = new ServiceFile();
         listClient = new ArrayList<>();
     }
 
@@ -58,27 +54,23 @@ public class Service {
         Configuration config = new Configuration();
         config.setPort(PORT_NUMBER);
         server = new SocketIOServer(config);
-        
-        // Listener 1: Connect
+        // Register connect listener correctly so onConnect is invoked
         server.addConnectListener(new ConnectListener() {
             @Override
             public void onConnect(SocketIOClient sioc) {
+                // Always update Swing components on the EDT
                 SwingUtilities.invokeLater(() -> textArea.append("One client connected\n"));
+                // Also print to console for easier debugging when GUI isn't visible
                 System.out.println("[Service] onConnect: client connected: " + sioc.getSessionId());
             }
         });
 
-        // Listener 2: Disconnect 
+        // Add a disconnect listener as well to help debugging disconnects
         server.addDisconnectListener((DisconnectListener) client -> {
             SwingUtilities.invokeLater(() -> textArea.append("One client disconnected\n"));
             System.out.println("[Service] onDisconnect: client disconnected: " + client.getSessionId());
-            int userID = removeClient(client);
-            if (userID != 0) {
-                userDisconnect(userID);
-            }
         });
         
-        // Listener 3: "register"
         server.addEventListener("register", ModelRegister.class, new DataListener<ModelRegister>() {
             @Override
             public void onData(SocketIOClient sioc, ModelRegister t, AckRequest ar) throws Exception {
@@ -92,7 +84,6 @@ public class Service {
             }
         });
         
-        // Listener 4: "login"
         server.addEventListener("login", ModelLogin.class, new DataListener<ModelLogin>() {
             @Override
             public void onData(SocketIOClient client, ModelLogin data, AckRequest ackSender) throws Exception {
@@ -101,14 +92,12 @@ public class Service {
                     ackSender.sendAckData(true, login);
                     addClient(client, login);
                     userConnect(login.getUserID());
-                    sendPendingMessages(login.getUserID()); // Giữ lại tính năng Pending Message
                 } else {
                     ackSender.sendAckData(false);
                 }
             }
         });
         
-        // Listener 5: "list_user"
         server.addEventListener("list_user", Integer.class, new DataListener<Integer>() {
             @Override
             public void onData(SocketIOClient client, Integer userID, AckRequest ackSender) throws Exception {
@@ -121,35 +110,13 @@ public class Service {
             }
         });
         
-        // Listener 6: "send_to_user" (Hợp nhất File/Image và Save Message)
         server.addEventListener("send_to_user", ModelSendMessage.class, new DataListener<ModelSendMessage>() {
             @Override
             public void onData(SocketIOClient client, ModelSendMessage data, AckRequest ackSender) throws Exception {
                 sendToClient(data, ackSender);
             }
         });
-
-        // Listener 7: "get_history" (Giữ lại tính năng Lịch sử)
-        server.addEventListener("get_history", Integer.class, new DataListener<Integer>() {
-            @Override
-            public void onData(SocketIOClient client, Integer toUserID, AckRequest ackSender) throws Exception {
-                int fromUserID = getFromUserID(client); 
-                
-                if (fromUserID != 0) {
-                    try {
-                        List<ChatMessage> history = messageRepository.getHistory(fromUserID, toUserID);
-                        ackSender.sendAckData(history); 
-                    } catch (SQLException e) {
-                        System.err.println("Error loading chat history: " + e.getMessage());
-                        ackSender.sendAckData(new ArrayList<>()); 
-                    }
-                } else {
-                    ackSender.sendAckData(new ArrayList<>()); 
-                }
-            }
-        });
         
-        // Listener 8: "send_file" (Giữ lại tính năng File/Image)
         server.addEventListener("send_file", ModelPackageSender.class, new DataListener<ModelPackageSender>() {
             @Override
             public void onData(SocketIOClient client, ModelPackageSender data, AckRequest ackSender) throws Exception {
@@ -160,6 +127,7 @@ public class Service {
                         ModelReceiveImage dataImage = new ModelReceiveImage();
                         dataImage.setFileID(data.getFileID());
                         ModelSendMessage message = serviceFile.closeFile(dataImage);
+                        // Send to client 'message'
                         sendTempFileToClient(message, dataImage);
                     } else {
                         ackSender.sendAckData(true);
@@ -171,7 +139,6 @@ public class Service {
             }
         });
         
-        // Listener 9: "get_file" (Giữ lại tính năng File/Image)
         server.addEventListener("get_file", Integer.class, new DataListener<Integer>() {
             @Override
             public void onData(SocketIOClient client, Integer data, AckRequest ackSender) throws Exception {
@@ -189,7 +156,6 @@ public class Service {
             }
         });
         
-        // Listener 10: "request_file" (Giữ lại tính năng File/Image)
         server.addEventListener("request_file", ModelRequestFile.class, new DataListener<ModelRequestFile>() {
             @Override
             public void onData(SocketIOClient client, ModelRequestFile data, AckRequest ackSender) throws Exception {
@@ -199,6 +165,7 @@ public class Service {
                     if (d != null) {
                         System.out.println("[Service] Sending file chunk - FileID: " + data.getFileID() + ", From: " + data.getCurrentLength() + ", Size: " + d.length + " bytes");
                         
+                        // Debug: print first few bytes
                         if (d.length > 0) {
                             StringBuilder sb = new StringBuilder("[Service] First bytes being sent: ");
                             for (int i = 0; i < Math.min(10, d.length); i++) {
@@ -220,6 +187,16 @@ public class Service {
             }
         });
         
+        server.addDisconnectListener(new DisconnectListener() {
+            @Override
+            public void onDisconnect(SocketIOClient client) {
+                int userID = removeClient(client);
+                if (userID != 0) {
+                    userDisconnect(userID);
+                }
+            }
+        });
+        
         server.start();
         textArea.append("Server has started on port: " + PORT_NUMBER + "\n");
     }
@@ -236,9 +213,7 @@ public class Service {
         listClient.add(new ModelClient(client, user));
     }
 
-    // Logic xử lý tin nhắn được hợp nhất để giữ lại cả hai tính năng
     private void sendToClient(ModelSendMessage data, AckRequest ackRequest) {
-        // Xử lý File/Image nếu messageType là File hoặc Image
         if (data.getMessageType() == MessageType.IMAGE.getValue() || data.getMessageType() == MessageType.FILE.getValue()) {
             try {
                 ModelFile file = serviceFile.addFileReceiver(data.getText());
@@ -248,76 +223,24 @@ public class Service {
                 e.printStackTrace();
             }
         } else {
-            // Xử lý tin nhắn TEXT/thông thường: Lưu DB và Gửi qua Socket
-            
-            // 1. Lưu tin nhắn vào DB (Từ c8d935e...)
-            ChatMessage chatMessage = new ChatMessage(data.getFromUserID(), data.getToUserID(), data.getText());
-            try {
-                messageRepository.saveMessage(chatMessage);
-            } catch (SQLException e) {
-                System.err.println("Error saving message: " + e.getMessage());
-            }
-            
-            // 2. Gửi tin nhắn qua Socket (Từ c8d935e...)
-            ModelReceiveMessage receiveData = new ModelReceiveMessage(data.getFromUserID(), data.getToUserID(), data.getText()); 
-
             for (ModelClient client : listClient) {
                 if (client.getUser().getUserID() == data.getToUserID()) {
-                    client.getClient().sendEvent("receive_ms", receiveData); 
+                    client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), null));
                     break;
                 }
             }
         }
     }
     
-    // Hàm hỗ trợ cho tính năng File/Image
     private void sendTempFileToClient(ModelSendMessage data, ModelReceiveImage dataImage) {
         System.out.println("[Service] Sending file to client - ToUser: " + data.getToUserID() + ", FileID: " + dataImage.getFileID() + ", Width: " + dataImage.getWidth() + ", Height: " + dataImage.getHeight());
         for (ModelClient client : listClient) {
             if (client.getUser().getUserID() == data.getToUserID()) {
-                client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getToUserID(), data.getText(), dataImage));
+                client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), dataImage));
                 System.out.println("[Service] File message sent successfully to User " + data.getToUserID());
                 break;
             }
         }
-    }
-
-    // Hàm hỗ trợ cho tính năng Pending Messages
-    private void sendPendingMessages(int userID) {
-        SocketIOClient clientSocket = findClientSocket(userID);
-        if (clientSocket != null) {
-            try {
-                List<ChatMessage> pendingMessages = messageRepository.getPendingMessages(userID);
-                
-                for (ChatMessage msg : pendingMessages) {
-                    ModelReceiveMessage receiveData = new ModelReceiveMessage(msg.getSenderId(), msg.getReceiverId(), msg.getContent());
-                    
-                    clientSocket.sendEvent("receive_ms", receiveData);
-                    
-                    messageRepository.markAsSent(msg.getId());
-                }
-            } catch (SQLException e) {
-                System.err.println("Error sending pending messages: " + e.getMessage());
-            }
-        }
-    }
-    
-    private int getFromUserID(SocketIOClient client) {
-        for (ModelClient c : listClient) {
-            if (c.getClient() == client) {
-                return c.getUser().getUserID();
-            }
-        }
-        return 0;
-    }
-
-    private SocketIOClient findClientSocket(int userID) {
-        for (ModelClient client : listClient) {
-            if (client.getUser().getUserID() == userID) {
-                return client.getClient();
-            }
-        }
-        return null;
     }
     
     public int removeClient(SocketIOClient client) {

@@ -24,7 +24,7 @@ public class DatabaseConnection {
         String port = "3306";
         String database = "chat_application_intrachat";
         String userName = "root";
-        String password = "";
+        String password = "123";
         connection = java.sql.DriverManager.getConnection("jdbc:mysql://" + server + ":" + port + "/" + database, userName, password);
     }
     
