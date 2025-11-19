@@ -1,30 +1,19 @@
 package com.example.service;
 
-import com.corundumstudio.socketio.AckRequest;
-import com.corundumstudio.socketio.Configuration;
-import com.corundumstudio.socketio.SocketIOClient;
-import com.corundumstudio.socketio.SocketIOServer;
-import com.corundumstudio.socketio.listener.ConnectListener;
-import com.corundumstudio.socketio.listener.DataListener;
-import com.corundumstudio.socketio.listener.DisconnectListener;
+import com.corundumstudio.socketio.*;
 import com.example.app.MessageType;
-import com.example.model.ModelClient;
-import com.example.model.ModelFile;
-import com.example.model.ModelLogin;
-import com.example.model.ModelMessage;
-import com.example.model.ModelPackageSender;
-import com.example.model.ModelReceiveImage;
-import com.example.model.ModelReceiveMessage;
-import com.example.model.ModelRegister;
-import com.example.model.ModelRequestFile;
-import com.example.model.ModelSendMessage;
-import com.example.model.ModelUserAccount;
+import com.example.connection.DatabaseConnection;
+import com.example.model.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import javax.swing.*;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
 
 public class Service {
 
@@ -35,6 +24,7 @@ public class Service {
     private List<ModelClient> listClient;
     private JTextArea textArea;
     private final int PORT_NUMBER = 9999;
+    private Connection connection;
 
     public static Service getInstance(JTextArea textArea) {
         if (instance == null) {
@@ -48,176 +38,119 @@ public class Service {
         serviceUser = new ServiceUser();
         serviceFile = new ServiceFile();
         listClient = new ArrayList<>();
+        connection = DatabaseConnection.getInstance().getConnection();
     }
 
     public void startServer() {
         Configuration config = new Configuration();
         config.setPort(PORT_NUMBER);
         server = new SocketIOServer(config);
-        // Register connect listener correctly so onConnect is invoked
-        server.addConnectListener(new ConnectListener() {
-            @Override
-            public void onConnect(SocketIOClient sioc) {
-                // Always update Swing components on the EDT
-                SwingUtilities.invokeLater(() -> textArea.append("One client connected\n"));
-                // Also print to console for easier debugging when GUI isn't visible
-                System.out.println("[Service] onConnect: client connected: " + sioc.getSessionId());
+
+        // Connect listener
+        server.addConnectListener(client -> {
+            SwingUtilities.invokeLater(() -> textArea.append("Client connected: " + client.getSessionId() + "\n"));
+        });
+
+        // Disconnect listener
+        server.addDisconnectListener(client -> {
+            int userID = removeClient(client);
+            if (userID != 0) userDisconnect(userID);
+            SwingUtilities.invokeLater(() -> textArea.append("Client disconnected: " + client.getSessionId() + "\n"));
+        });
+
+        // REGISTER
+        server.addEventListener("register", ModelRegister.class, (client, data, ackSender) -> {
+            ModelMessage message = serviceUser.register(data);
+            ackSender.sendAckData(message.isAction(), message.getMessage(), message.getData());
+            if (message.isAction()) {
+                addClient(client, (ModelUserAccount) message.getData());
             }
         });
 
-        // Add a disconnect listener as well to help debugging disconnects
-        server.addDisconnectListener((DisconnectListener) client -> {
-            SwingUtilities.invokeLater(() -> textArea.append("One client disconnected\n"));
-            System.out.println("[Service] onDisconnect: client disconnected: " + client.getSessionId());
-        });
-        
-        server.addEventListener("register", ModelRegister.class, new DataListener<ModelRegister>() {
-            @Override
-            public void onData(SocketIOClient sioc, ModelRegister t, AckRequest ar) throws Exception {
-                ModelMessage message = serviceUser.register(t);
-                ar.sendAckData(message.isAction(), message.getMessage(), message.getData());
-                if (message.isAction()) {
-                    textArea.append("User has register:" + t.getUserName() + " Pass:" + t.getPassword() + "\n");
-                    server.getBroadcastOperations().sendEvent("list_user", (ModelUserAccount) message.getData());
-                    addClient(sioc, (ModelUserAccount) message.getData());
-                }
-            }
-        });
-        
-        server.addEventListener("login", ModelLogin.class, new DataListener<ModelLogin>() {
-            @Override
-            public void onData(SocketIOClient client, ModelLogin data, AckRequest ackSender) throws Exception {
+        // LOGIN
+        server.addEventListener("login", ModelLogin.class, (client, data, ackSender) -> {
+            try {
                 ModelUserAccount login = serviceUser.login(data);
                 if (login != null) {
+                    addClient(client, login); // add client ngay sau login
                     ackSender.sendAckData(true, login);
-                    addClient(client, login);
                     userConnect(login.getUserID());
                 } else {
                     ackSender.sendAckData(false);
                 }
+            } catch (SQLException e) {
+                e.printStackTrace();
+                ackSender.sendAckData(false);
             }
         });
-        
-        server.addEventListener("list_user", Integer.class, new DataListener<Integer>() {
-            @Override
-            public void onData(SocketIOClient client, Integer userID, AckRequest ackSender) throws Exception {
+
+        // LIST_USER
+        server.addEventListener("list_user", Integer.class, (client, userID, ackSender) -> {
+            try {
+                List<ModelUserAccount> list = serviceUser.getUser(userID);
+                client.sendEvent("list_user", list.toArray());
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        });
+
+        // SEND TO USER
+        server.addEventListener("send_to_user", ModelSendMessage.class, (client, data, ackSender) -> {
+            sendToClient(data, ackSender);
+        });
+
+        // REQUEST HISTORY
+        server.addEventListener("requestHistory", Integer.class, (client, toUserID, ackSender) -> {
+            try {
+                int fromUserID = getUserIDByClient(client);
+                JSONObject response = new JSONObject();
+                if (fromUserID == 0) {
+                    response.put("action", false);
+                    response.put("message", "User not logged in");
+                    response.put("messageList", new JSONArray());
+                    ackSender.sendAckData(response);
+                    return;
+                }
+
+                List<ModelReceiveMessage> history = serviceUser.getMessageHistory(fromUserID, toUserID);
+                JSONArray arr = new JSONArray();
+                for (ModelReceiveMessage msg : history) {
+                    arr.put(msg.toJSONObject());
+                }
+
+                response.put("action", true);
+                response.put("message", "History retrieved");
+                response.put("messageList", arr);
+                ackSender.sendAckData(response);
+
+            } catch (Exception e) {
+                e.printStackTrace();
                 try {
-                    List<ModelUserAccount> list = serviceUser.getUser(userID);
-                    client.sendEvent("list_user", list.toArray());
-                } catch (SQLException e) {
-                    System.err.println(e);
+                    JSONObject response = new JSONObject();
+                    response.put("action", false);
+                    response.put("message", "Error retrieving history");
+                    response.put("messageList", new JSONArray());
+                    ackSender.sendAckData(response);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
                 }
             }
         });
-        
-        server.addEventListener("send_to_user", ModelSendMessage.class, new DataListener<ModelSendMessage>() {
-            @Override
-            public void onData(SocketIOClient client, ModelSendMessage data, AckRequest ackSender) throws Exception {
-                sendToClient(data, ackSender);
-            }
-        });
-        
-        server.addEventListener("send_file", ModelPackageSender.class, new DataListener<ModelPackageSender>() {
-            @Override
-            public void onData(SocketIOClient client, ModelPackageSender data, AckRequest ackSender) throws Exception {
-                try {
-                    serviceFile.receiveFile(data);
-                    if (data.isFinish()) {
-                        ackSender.sendAckData(true);
-                        ModelReceiveImage dataImage = new ModelReceiveImage();
-                        dataImage.setFileID(data.getFileID());
-                        ModelSendMessage message = serviceFile.closeFile(dataImage);
-                        // Send to client 'message'
-                        sendTempFileToClient(message, dataImage);
-                    } else {
-                        ackSender.sendAckData(true);
-                    }
-                } catch (IOException | SQLException e) {
-                    ackSender.sendAckData(false);
-                    e.printStackTrace();
-                }
-            }
-        });
-        
-        server.addEventListener("get_file", Integer.class, new DataListener<Integer>() {
-            @Override
-            public void onData(SocketIOClient client, Integer data, AckRequest ackSender) throws Exception {
-                try {
-                    System.out.println("[Service] Client requesting file info for FileID: " + data);
-                    ModelFile file = serviceFile.initFile(data);
-                    long fileSize = serviceFile.getFileSize(data);
-                    System.out.println("[Service] Sending file info - Extension: " + file.getFileExtension() + ", Size: " + fileSize);
-                    ackSender.sendAckData(file.getFileExtension(), fileSize);
-                } catch (Exception e) {
-                    System.err.println("[Service] ERROR in get_file for FileID " + data + ": " + e.getMessage());
-                    e.printStackTrace();
-                    ackSender.sendAckData();
-                }
-            }
-        });
-        
-        server.addEventListener("request_file", ModelRequestFile.class, new DataListener<ModelRequestFile>() {
-            @Override
-            public void onData(SocketIOClient client, ModelRequestFile data, AckRequest ackSender) throws Exception {
-                try {
-                    System.out.println("[Service] Client requesting file chunk - FileID: " + data.getFileID() + ", CurrentLength: " + data.getCurrentLength());
-                    byte[] d = serviceFile.getFileData(data.getCurrentLength(), data.getFileID());
-                    if (d != null) {
-                        System.out.println("[Service] Sending file chunk - FileID: " + data.getFileID() + ", From: " + data.getCurrentLength() + ", Size: " + d.length + " bytes");
-                        
-                        // Debug: print first few bytes
-                        if (d.length > 0) {
-                            StringBuilder sb = new StringBuilder("[Service] First bytes being sent: ");
-                            for (int i = 0; i < Math.min(10, d.length); i++) {
-                                sb.append(String.format("%02X ", d[i] & 0xFF));
-                            }
-                            System.out.println(sb.toString());
-                        }
-                        
-                        ackSender.sendAckData(d);
-                    } else {
-                        System.out.println("[Service] No more data for FileID: " + data.getFileID());
-                        ackSender.sendAckData();
-                    }
-                } catch (Exception e) {
-                    System.err.println("[Service] ERROR sending file chunk for FileID " + data.getFileID() + ": " + e.getMessage());
-                    e.printStackTrace();
-                    ackSender.sendAckData();
-                }
-            }
-        });
-        
-        server.addDisconnectListener(new DisconnectListener() {
-            @Override
-            public void onDisconnect(SocketIOClient client) {
-                int userID = removeClient(client);
-                if (userID != 0) {
-                    userDisconnect(userID);
-                }
-            }
-        });
-        
+
         server.start();
-        textArea.append("Server has started on port: " + PORT_NUMBER + "\n");
-    }
-    
-    private void userConnect(int userID) {
-        server.getBroadcastOperations().sendEvent("user_status", userID, true);
-    }
-    
-    private void userDisconnect(int userID) {
-        server.getBroadcastOperations().sendEvent("user_status", userID, false);
-    }
-    
-    private void addClient(SocketIOClient client, ModelUserAccount user) {
-        listClient.add(new ModelClient(client, user));
+        textArea.append("Server started on port " + PORT_NUMBER + "\n");
     }
 
+    // ================= Helper methods =================
+
     private void sendToClient(ModelSendMessage data, AckRequest ackRequest) {
-        if (data.getMessageType() == MessageType.IMAGE.getValue() || data.getMessageType() == MessageType.FILE.getValue()) {
+        Integer fileID = null;
+        if (data.getMessageType() == MessageType.IMAGE.getValue() ||
+            data.getMessageType() == MessageType.FILE.getValue()) {
             try {
                 ModelFile file = serviceFile.addFileReceiver(data.getText());
                 serviceFile.initFile(file, data);
+                fileID = file.getFileID();
                 ackRequest.sendAckData(file.getFileID());
             } catch (IOException | SQLException e) {
                 e.printStackTrace();
@@ -225,24 +158,52 @@ public class Service {
         } else {
             for (ModelClient client : listClient) {
                 if (client.getUser().getUserID() == data.getToUserID()) {
-                    client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), null));
+                    client.getClient().sendEvent("receive_ms",
+                            new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), null));
                     break;
                 }
             }
         }
+        saveMessageToDB(data, fileID);
     }
-    
-    private void sendTempFileToClient(ModelSendMessage data, ModelReceiveImage dataImage) {
-        System.out.println("[Service] Sending file to client - ToUser: " + data.getToUserID() + ", FileID: " + dataImage.getFileID() + ", Width: " + dataImage.getWidth() + ", Height: " + dataImage.getHeight());
-        for (ModelClient client : listClient) {
-            if (client.getUser().getUserID() == data.getToUserID()) {
-                client.getClient().sendEvent("receive_ms", new ModelReceiveMessage(data.getMessageType(), data.getFromUserID(), data.getText(), dataImage));
-                System.out.println("[Service] File message sent successfully to User " + data.getToUserID());
-                break;
-            }
+
+    private void saveMessageToDB(ModelSendMessage data, Integer fileID) {
+        String sql = "INSERT INTO messages (MessageType, FromUserID, ToUserID, TextContent, FileID) VALUES (?,?,?,?,?)";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, data.getMessageType());
+            ps.setInt(2, data.getFromUserID());
+            ps.setInt(3, data.getToUserID());
+            ps.setString(4, data.getText());
+            if (fileID != null) ps.setInt(5, fileID);
+            else ps.setNull(5, java.sql.Types.INTEGER);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
-    
+
+    private int getUserIDByClient(SocketIOClient client) {
+        for (ModelClient c : listClient) {
+            if (c.getClient() == client) return c.getUser().getUserID();
+        }
+        return 0;
+    }
+
+    private void addClient(SocketIOClient client, ModelUserAccount user) {
+        for (ModelClient c : listClient) {
+            if (c.getUser().getUserID() == user.getUserID()) return; // tránh trùng
+        }
+        listClient.add(new ModelClient(client, user));
+    }
+
+    private void userConnect(int userID) {
+        server.getBroadcastOperations().sendEvent("user_status", userID, true);
+    }
+
+    private void userDisconnect(int userID) {
+        server.getBroadcastOperations().sendEvent("user_status", userID, false);
+    }
+
     public int removeClient(SocketIOClient client) {
         for (ModelClient c : listClient) {
             if (c.getClient() == client) {
@@ -252,7 +213,7 @@ public class Service {
         }
         return 0;
     }
-    
+
     public List<ModelClient> getListClient() {
         return listClient;
     }

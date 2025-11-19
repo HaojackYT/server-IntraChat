@@ -1,11 +1,13 @@
 package com.example.model;
 
+import org.json.JSONObject;
+
 public class ModelReceiveMessage {
-    
+
     private int messageType;
     private int fromUserID;
     private String text;
-    ModelReceiveImage dataImage;
+    private ModelReceiveImage dataImage;
 
     public ModelReceiveMessage(int messageType, int fromUserID, String text, ModelReceiveImage dataImage) {
         this.messageType = messageType;
@@ -16,7 +18,7 @@ public class ModelReceiveMessage {
 
     public ModelReceiveMessage() {
     }
-    
+
     public int getMessageType() {
         return messageType;
     }
@@ -47,5 +49,24 @@ public class ModelReceiveMessage {
 
     public void setDataImage(ModelReceiveImage dataImage) {
         this.dataImage = dataImage;
+    }
+
+    // ======= Thêm phương thức toJSONObject =======
+    public JSONObject toJSONObject() {
+        JSONObject obj = new JSONObject();
+        obj.put("messageType", messageType);
+        obj.put("fromUserID", fromUserID);
+        obj.put("text", text);
+
+        if (dataImage != null) {
+            JSONObject img = new JSONObject();
+            img.put("fileID", dataImage.getFileID());
+            img.put("image", dataImage.getImage());
+            img.put("width", dataImage.getWidth());
+            img.put("height", dataImage.getHeight());
+            obj.put("dataImage", img);
+        }
+
+        return obj;
     }
 }

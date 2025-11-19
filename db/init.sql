@@ -24,3 +24,15 @@ CREATE TABLE `files` (
   `Status` CHAR(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`FileID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `messages` (
+    MessageID INT NOT NULL AUTO_INCREMENT,
+    MessageType INT NOT NULL,
+    FromUserID INT NOT NULL,
+    ToUserID INT NOT NULL,
+    TextContent TEXT,
+    FileID INT,
+    SentTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    IsRead BOOLEAN NOT NULL DEFAULT 0,
+    PRIMARY KEY (MessageID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
